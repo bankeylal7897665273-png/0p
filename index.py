@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+# 🛑 SABSE BADI FIX YAHI HAI: Fixed Secret Key (Ab session nahi katega)
+app.secret_key = os.getenv("SECRET_KEY", "Bankey_0PAY_Secure_Permanent_Key_100")
 
 # ENV Variables
 API_KEY = os.getenv("FIREBASE_API_KEY")
@@ -40,7 +41,8 @@ def db_patch(path, data):
 # --- ROUTES ---
 @app.route('/')
 def home():
-    if 'uid' in session: return redirect('/dashboard')
+    if 'uid' in session: 
+        return redirect('/dashboard')
     return render_template('auth.html')
 
 @app.route('/api/auth', methods=['POST'])
@@ -52,6 +54,11 @@ def auth():
     
     if action == 'login':
         res = firebase_login(email, password)
+        # BUG FIX: Ensure user exists in Database even on normal login
+        if 'localId' in res:
+            uid = res['localId']
+            if not db_get(f"users/{uid}"):
+                db_put(f"users/{uid}", {"email": email, "balance": 0, "pending": 0, "success": 0, "reject": 0})
     else:
         res = firebase_signup(email, password)
         if 'localId' in res:
@@ -59,22 +66,30 @@ def auth():
             
     if 'idToken' in res:
         session['uid'] = res['localId']
+        session.modified = True # Force session to save permanently
         return jsonify({"status": "success"})
+        
     return jsonify({"status": "error", "message": res.get("error", {}).get("message", "Auth Failed")})
 
 @app.route('/dashboard')
 def dashboard():
-    if 'uid' not in session: return redirect('/')
+    if 'uid' not in session: 
+        return redirect('/')
     return render_template('dashboard.html')
 
 @app.route('/api/user_data', methods=['GET'])
 def user_data():
-    if 'uid' not in session: return jsonify({"error": "Unauthorized"}), 401
+    if 'uid' not in session: 
+        return jsonify({"error": "Unauthorized"}), 401
+        
     uid = session['uid']
     user_info = db_get(f"users/{uid}")
+    
+    # Check if user data exists
     if not user_info:
         session.pop('uid', None)
         return jsonify({"error": "User deleted"}), 401
+        
     apis = db_get(f"apis") or {}
     my_apis = {k: v for k, v in apis.items() if v.get('uid') == uid}
     return jsonify({"user": user_info, "apis": my_apis})
