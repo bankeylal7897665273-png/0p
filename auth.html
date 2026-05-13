@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0PAY - Secure Login</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { margin: 0; background: #0a0e17; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .auth-box { background: #131b2c; padding: 40px; border-radius: 15px; width: 320px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .logo { font-size: 32px; font-weight: bold; margin-bottom: 20px; color: #00d2ff; }
+        .logo i { color: #fff; background: #0047ff; padding: 5px 10px; border-radius: 5px; margin-left: 5px; font-style: italic; }
+        input { width: 100%; padding: 12px; margin: 10px 0; background: #1e293b; border: 1px solid #334155; color: white; border-radius: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%); border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+        .loader { display: none; border: 3px solid #f3f3f3; border-top: 3px solid transparent; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .switch { color: #00d2ff; cursor: pointer; margin-top: 15px; font-size: 14px; display: block; }
+    </style>
+</head>
+<body>
+    <div class="auth-box">
+        <div class="logo">0PAY<i class="fab fa-cc-visa"></i></div>
+        <h3 id="auth-title">Login</h3>
+        <input type="email" id="email" placeholder="Email Address">
+        <input type="password" id="password" placeholder="Password">
+        <input type="password" id="re-password" placeholder="Re-enter Password" style="display: none;">
+        <button onclick="handleAuth()" id="auth-btn"><span id="btn-text">Login</span><div class="loader" id="loader"></div></button>
+        <span class="switch" onclick="toggleMode()" id="switch-txt">Create an Account</span>
+    </div>
+
+    <script>
+        let isLogin = true;
+        function toggleMode() {
+            isLogin = !isLogin;
+            document.getElementById('auth-title').innerText = isLogin ? 'Login' : 'Create Account';
+            document.getElementById('btn-text').innerText = isLogin ? 'Login' : 'Sign Up';
+            document.getElementById('switch-txt').innerText = isLogin ? 'Create an Account' : 'Back to Login';
+            document.getElementById('re-password').style.display = isLogin ? 'none' : 'block';
+        }
+
+        async function handleAuth() {
+            const e = document.getElementById('email').value;
+            const p = document.getElementById('password').value;
+            const rp = document.getElementById('re-password').value;
+
+            if(!isLogin && p !== rp) return alert("Passwords do not match!");
+            
+            document.getElementById('btn-text').style.display = 'none';
+            document.getElementById('loader').style.display = 'block';
+
+            const res = await fetch('/api/auth', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: isLogin ? 'login' : 'signup', email: e, password: p})
+            });
+            const data = await res.json();
+            
+            if(data.status === 'success') window.location.href = '/dashboard';
+            else {
+                alert(data.message);
+                document.getElementById('btn-text').style.display = 'block';
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
