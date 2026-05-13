@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0PAY - Complete Payment</title>
+    <style>
+        body { margin: 0; background: #f3f4f6; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .pay-card { background: white; width: 340px; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        .logo { font-size: 28px; font-weight: bold; color: #0047ff; margin-bottom: 5px; }
+        .timer { font-size: 24px; font-weight: bold; color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin: 15px 0; }
+        .qr-box img { width: 200px; height: 200px; border: 2px solid #e5e7eb; border-radius: 10px; padding: 5px; }
+        input { width: 100%; padding: 14px; margin: 15px 0; border: 2px solid #e5e7eb; border-radius: 8px; box-sizing: border-box; font-size: 16px; text-align: center; font-weight: bold; letter-spacing: 2px;}
+        button { width: 100%; padding: 15px; background: #0047ff; color: white; border: none; font-weight: bold; font-size: 16px; border-radius: 8px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="pay-card">
+        <div class="logo">0PAY <i>Visa</i></div>
+        <h2 style="margin: 5px 0; color: #111827;">₹{{ amount }}</h2>
+        <p style="color: #6b7280; margin: 0;">Pay exactly this amount.</p>
+        
+        <div class="timer" id="timer">05:00</div>
+        
+        <div class="qr-box">
+            <img src="{{ qr_url }}" alt="QR Code">
+        </div>
+        <p style="font-weight: bold; color: #374151;">UPI: {{ upi }}</p>
+
+        <input type="text" id="utr" placeholder="ENTER 12 DIGIT UTR" maxlength="12">
+        <button onclick="submitUTR()">Verify Payment</button>
+    </div>
+
+    <script>
+        const TXN_ID = "{{ txn_id }}";
+        
+        // Persistent Timer Logic
+        let startTime = localStorage.getItem(`txn_${TXN_ID}`);
+        if (!startTime) {
+            startTime = Date.now();
+            localStorage.setItem(`txn_${TXN_ID}`, startTime);
+        }
+
+        function updateTimer() {
+            let elapsed = Math.floor((Date.now() - startTime) / 1000);
+            let left = 300 - elapsed;
+            
+            if (left <= 0) {
+                document.getElementById('timer').innerText = "EXPIRED";
+                document.querySelector('button').disabled = true;
+                return;
+            }
+            let m = Math.floor(left / 60).toString().padStart(2, '0');
+            let s = (left % 60).toString().padStart(2, '0');
+            document.getElementById('timer').innerText = `${m}:${s}`;
+            setTimeout(updateTimer, 1000);
+        }
+        updateTimer();
+
+        async function submitUTR() {
+            const utr = document.getElementById('utr').value;
+            if(utr.length !== 12) return alert("Please enter valid 12 digit UTR");
+            
+            const res = await fetch('/api/verify_utr', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({utr: utr, amount: "{{ amount }}", api_id: "{{ api_id }}"})
+            });
+            const data = await res.json();
+            alert(data.message || data.status);
+            if(data.status === 'success') {
+                localStorage.removeItem(`txn_${TXN_ID}`);
+                document.body.innerHTML = "<h2 style='color:green; text-align:center;'>Payment Successful ✅</h2>";
+            }
+        }
+    </script>
+</body>
+</html>
