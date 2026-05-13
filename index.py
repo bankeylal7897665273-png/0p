@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-# Permanent session key so users don't get logged out
+# Permanent session key
 app.secret_key = os.getenv("SECRET_KEY", "Bankey_0PAY_Secure_Permanent_Key_100")
 
 # ENV Variables
@@ -101,28 +101,43 @@ def create_api():
     db_put(f"apis/{api_id}", {"name": api_name, "uid": uid, "domain": base_url, "created": int(time.time())})
     return jsonify({"status": "success", "api_id": api_id})
 
-
-# ==========================================
-# 🛑 CORE PAYMENT SYSTEM (id.py logic + Strict UTR)
-# ==========================================
-
-# 1. Generate ID (User hits this to create a locked transaction)
-@app.route('/api/generate_id', methods=['GET'])
-def generate_id():
-    api_id = request.args.get('api_id')
-    amount = request.args.get('amount')
+@app.route('/api/request_payout', methods=['POST'])
+def request_payout():
+    if 'uid' not in session: return jsonify({"error": "Unauthorized"}), 401
+    uid = session['uid']
+    upi = request.json.get('upi')
+    amount = float(request.json.get('amount'))
     
-    if not api_id or not amount:
-        return jsonify({"error": "Missing api_id or amount"}), 400
-        
+    user_data = db_get(f"users/{uid}")
+    if user_data['balance'] < amount or amount <= 0:
+        return jsonify({"status": "error", "message": "Insufficient Balance"})
+    
+    db_patch(f"users/{uid}", {
+        "balance": user_data['balance'] - amount,
+        "pending": user_data['pending'] + amount
+    })
+    
+    req_id = f"REQ{int(time.time())}"
+    db_put(f"payout_requests/{req_id}", {"uid": uid, "email": user_data.get('email','Unknown'), "upi": upi, "amount": amount, "status": "Pending", "time": int(time.time())})
+    
+    return jsonify({"status": "success", "message": "Payout requested successfully"})
+
+
+# ==========================================
+# 🛑 CORE PAYMENT SYSTEM (ENTRY -> REDIRECT -> LOCK)
+# ==========================================
+
+# 1. ENTRY POINT (Dashboard wala link yahan aayega)
+@app.route('/pay/<api_id>/<amount>')
+def init_payment(api_id, amount):
     api_data = db_get(f"apis/{api_id}")
-    if not api_data: return jsonify({"error": "Invalid API ID"}), 400
+    if not api_data: return "Error: Invalid API ID", 404
     
     # Create Unique TXN ID and Expiry Time (5 Mins = 300 Secs)
     txn_id = f"TXN{int(time.time())}"
     expiry_time = int(time.time()) + 300 
     
-    # Save to Firebase pending_txns
+    # Save to Firebase
     db_put(f"pending_txns/{txn_id}", {
         "api_id": api_id,
         "amount": float(amount),
@@ -130,18 +145,16 @@ def generate_id():
         "status": "pending"
     })
     
-    # Return the URL where the user will pay
-    base_url = request.host_url.rstrip('/')
-    pay_link = f"{base_url}/pay/{txn_id}"
-    return jsonify({"status": "success", "txn_id": txn_id, "pay_link": pay_link})
+    # REDIRECT TO SECURE CHECKOUT PAGE
+    return redirect(f"/checkout/{txn_id}")
 
-# 2. Payment Page (Checks Server Timer & Generates Locked QR)
-@app.route('/pay/<txn_id>')
-def payment_page(txn_id):
+# 2. SECURE CHECKOUT PAGE (Yahan 5 min ka timer aur QR dikhega)
+@app.route('/checkout/<txn_id>')
+def checkout_page(txn_id):
     txn_data = db_get(f"pending_txns/{txn_id}")
     
     if not txn_data:
-        return "Transaction not found or invalid.", 404
+        return "Error: Transaction not found or invalid.", 404
         
     if txn_data.get('status') == 'success':
         return render_template('pay.html', expired=False, success=True)
@@ -155,7 +168,6 @@ def payment_page(txn_id):
         
     time_left = expiry_time - current_time
     amount = txn_data['amount']
-    api_id = txn_data['api_id']
     
     # Generate QR with Amount Locked (am=) and ID appended (tr=)
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa={UPI_ID}&am={amount}&tr={txn_id}&cu=INR"
@@ -170,9 +182,8 @@ def verify_utr():
     utr = str(data.get('utr')).strip()
     txn_id = data.get('txn_id')
     
-    # STRICT 12-DIGIT CHECK
     if not utr.isdigit() or len(utr) != 12:
-        return jsonify({"status": "error", "message": "Invalid UTR format. Must be 12 digits."})
+        return jsonify({"status": "error", "message": "Invalid UTR format. Must be exact 12 digits."})
         
     txn_data = db_get(f"pending_txns/{txn_id}")
     if not txn_data or txn_data['status'] == 'success':
@@ -184,27 +195,21 @@ def verify_utr():
     amount = float(txn_data['amount'])
     
     # --- REAL COOKIE CHECKING LOGIC ---
-    # Python checks Freecharge API using your cookie. 
-    # (Note: If the merchant API endpoint below is slightly different for your FC account, 
-    # it will naturally fail and return 'Pending', preventing fake successes).
-    
     is_valid = False
     try:
         cookies = {'app_fc': FC_COOKIE}
         headers = {"User-Agent": "Mozilla/5.0"}
-        # Realistic endpoint structure for checking merchant history
+        # Freecharge Merchant verification request
         fc_res = requests.get(f"https://merchant.freecharge.in/api/v1/transaction?utr={utr}", cookies=cookies, headers=headers, timeout=5)
         
         if fc_res.ok:
             fc_data = fc_res.json()
-            # Strict match: Amount must match exactly, and status must be success
             if fc_data.get('status') == 'SUCCESS' and float(fc_data.get('amount', 0)) == amount:
                 is_valid = True
     except Exception as e:
         print(f"FC API Error: {e}")
         pass
 
-    # If Cookie check passes
     if is_valid:
         api_id = txn_data['api_id']
         api_data = db_get(f"apis/{api_id}")
@@ -221,8 +226,7 @@ def verify_utr():
         })
         return jsonify({"status": "success", "message": "Payment Verified!"})
     
-    # IF NOT FOUND OR FAILED
-    return jsonify({"status": "error", "message": "Payment not received yet. Still Pending."})
+    return jsonify({"status": "error", "message": "Payment not received yet. Check UTR and try again."})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
