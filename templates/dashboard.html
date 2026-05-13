@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0PAY - Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { margin: 0; background: #0f172a; color: white; font-family: sans-serif; display: flex; }
+        .sidebar { width: 250px; background: #1e293b; height: 100vh; position: fixed; left: -250px; transition: 0.3s; z-index: 100; padding-top: 60px; }
+        .sidebar.active { left: 0; box-shadow: 5px 0 15px rgba(0,0,0,0.5); }
+        .sidebar a { display: block; padding: 15px 20px; color: white; text-decoration: none; border-bottom: 1px solid #334155; transition: 0.2s;}
+        .sidebar a:hover { background: #00d2ff; color: #000; font-weight: bold; border-left: 5px solid #0047ff;}
+        .topbar { background: #1e293b; padding: 15px; display: flex; align-items: center; position: fixed; width: 100%; top: 0; z-index: 99; box-shadow: 0 2px 10px rgba(0,0,0,0.5);}
+        .menu-btn { font-size: 24px; cursor: pointer; margin-right: 15px; }
+        .logo { font-size: 24px; font-weight: bold; color: #00d2ff; }
+        .logo i { background: #0047ff; color: white; padding: 2px 8px; border-radius: 4px; font-size: 18px; margin-left: 5px; }
+        .main { margin-top: 60px; padding: 20px; width: 100%; transition: 0.3s; }
+        
+        .box-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .box { background: linear-gradient(135deg, #1e293b, #0f172a); padding: 25px; border-radius: 12px; border-left: 4px solid #00d2ff; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .box h3 { margin: 0 0 10px 0; color: #94a3b8; }
+        .box h1 { margin: 0; font-size: 32px; color: #00d2ff; }
+        
+        .tab { display: none; }
+        .tab.active { display: block; }
+        
+        input { width: 100%; padding: 14px; margin: 10px 0; background: #0f172a; border: 1px solid #334155; color: white; border-radius: 8px; box-sizing: border-box; font-size:16px;}
+        button { position: relative; width: 100%; padding: 14px; background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%); border: none; color: white; font-weight: bold; font-size:16px; border-radius: 8px; cursor: pointer; }
+        
+        .loader { display: none; border: 3px solid #f3f3f3; border-top: 3px solid transparent; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .list-item { background: #1e293b; padding: 15px; margin-top: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 10px;}
+        .code-box { background: #000; padding: 10px; border-radius: 5px; color: #10b981; font-family: monospace; word-break: break-all;}
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <i class="fas fa-bars menu-btn" onclick="document.getElementById('sidebar').classList.toggle('active')"></i>
+        <div class="logo">0PAY<i class="fab fa-cc-visa"></i></div>
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        <a href="#" onclick="showTab('home')"><i class="fas fa-home"></i> Home</a>
+        <a href="#" onclick="showTab('apis')"><i class="fas fa-code"></i> Setup APIs</a>
+        <a href="#" onclick="showTab('wallet')"><i class="fas fa-wallet"></i> Payout Request</a>
+        <a href="#" onclick="window.location.href='/'" style="color:#ef4444; margin-top:20px;"><i class="fas fa-sign-out-alt"></i> Logout</a>
+    </div>
+
+    <div class="main">
+        <!-- HOME TAB -->
+        <div id="home" class="tab active">
+            <h2>Dashboard Overview</h2>
+            <div class="box-grid">
+                <div class="box"><h3>My Balance</h3><h1 id="b-bal">₹0.00</h1></div>
+                <div class="box" style="border-color: #10b981;"><h3>Success (3% Cut)</h3><h1 id="b-suc" style="color:#10b981;">₹0.00</h1></div>
+                <div class="box" style="border-color: #f59e0b;"><h3>Pending Rs</h3><h1 id="b-pen" style="color:#f59e0b;">₹0.00</h1></div>
+                <div class="box" style="border-color: #ef4444;"><h3>Reject Rs</h3><h1 id="b-rej" style="color:#ef4444;">₹0.00</h1></div>
+            </div>
+        </div>
+
+        <!-- API TAB -->
+        <div id="apis" class="tab">
+            <h2>API Management</h2>
+            <div class="box" style="border-color: #8b5cf6;">
+                <h3>Create New API</h3>
+                <p style="color:#94a3b8; font-size:12px;">URL is automatically detected. Just enter a name.</p>
+                <input type="text" id="api-name" placeholder="API Name (e.g., Ludo App)">
+                <button onclick="createAPI()" id="btn-api"><span id="txt-api">Generate API & URL</span><div class="loader" id="ldr-api"></div></button>
+            </div>
+            <h3 style="margin-top: 30px;">Your Live APIs</h3>
+            <div id="api-list"></div>
+        </div>
+
+        <!-- WALLET/PAYOUT TAB -->
+        <div id="wallet" class="tab">
+            <h2>Withdraw Funds</h2>
+            <div class="box">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <h3><i class="fas fa-wallet"></i> Wallet Balance</h3>
+                    <h2 id="w-bal" style="color: #00d2ff;">₹0.00</h2>
+                </div>
+                <hr style="border-color: #334155; margin: 15px 0;">
+                <label style="color:#94a3b8;"><i class="fab fa-google-pay"></i> Request Amount</label>
+                <input type="number" id="p-amt" placeholder="Enter Amount to withdraw">
+                <label style="color:#94a3b8; margin-top:10px; display:block;"><i class="fas fa-university"></i> Add UPI ID</label>
+                <input type="text" id="p-upi" placeholder="Enter your UPI ID">
+                <button onclick="requestPayout()" id="btn-pay"><span id="txt-pay">Submit Payout Request</span><div class="loader" id="ldr-pay"></div></button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showTab(id) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.getElementById('sidebar').classList.remove('active');
+        }
+
+        function toggleBtn(id, loading) {
+            document.getElementById('txt-'+id).style.display = loading ? 'none' : 'block';
+            document.getElementById('ldr-'+id).style.display = loading ? 'block' : 'none';
+            document.getElementById('btn-'+id).disabled = loading;
+        }
+
+        async function loadData() {
+            const res = await fetch('/api/user_data');
+            if(!res.ok) return window.location.href='/';
+            const data = await res.json();
+            
+            document.getElementById('b-bal').innerText = `₹${data.user.balance}`;
+            document.getElementById('w-bal').innerText = `₹${data.user.balance}`;
+            document.getElementById('b-suc').innerText = `₹${data.user.success}`;
+            document.getElementById('b-pen').innerText = `₹${data.user.pending}`;
+            document.getElementById('b-rej').innerText = `₹${data.user.reject}`;
+            
+            const list = document.getElementById('api-list');
+            list.innerHTML = '';
+            for(let key in data.apis) {
+                let a = data.apis[key];
+                let payUrl = `${a.domain}/pay/${key}/[AMOUNT]`;
+                list.innerHTML += `
+                <div class="list-item">
+                    <div style="display:flex; justify-content:space-between; width:100%;">
+                        <b style="font-size:18px; color:#00d2ff;">${a.name}</b>
+                        <small style="color:#94a3b8;">ID: ${key}</small>
+                    </div>
+                    <div class="code-box">${payUrl}</div>
+                    <button style="background:#334155; padding:8px;" onclick="navigator.clipboard.writeText('${payUrl}'); alert('Payment URL Copied!');">Copy Payment Link</button>
+                </div>`;
+            }
+        }
+
+        async function createAPI() {
+            const n = document.getElementById('api-name').value;
+            if(!n) return alert("Enter Name!");
+            toggleBtn('api', true);
+            await fetch('/api/create_api', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: n}) });
+            await loadData();
+            document.getElementById('api-name').value = '';
+            toggleBtn('api', false);
+            alert("API Created Successfully!");
+        }
+
+        async function requestPayout() {
+            const amt = document.getElementById('p-amt').value;
+            const upi = document.getElementById('p-upi').value;
+            if(!amt || !upi) return alert("Fill all details");
+            
+            toggleBtn('pay', true);
+            const res = await fetch('/api/request_payout', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: amt, upi: upi}) });
+            const data = await res.json();
+            alert(data.message);
+            await loadData();
+            toggleBtn('pay', false);
+            document.getElementById('p-amt').value = '';
+            document.getElementById('p-upi').value = '';
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
