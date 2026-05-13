@@ -4,71 +4,114 @@
     <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>0PAY - Complete Payment</title>
     <style>
-        body { margin: 0; background: #f3f4f6; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .pay-card { background: white; width: 340px; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
-        .logo { font-size: 28px; font-weight: bold; color: #0047ff; margin-bottom: 5px; }
-        .timer { font-size: 24px; font-weight: bold; color: #ef4444; background: #fee2e2; padding: 10px; border-radius: 8px; margin: 15px 0; }
-        .qr-box img { width: 200px; height: 200px; border: 2px solid #e5e7eb; border-radius: 10px; padding: 5px; }
-        input { width: 100%; padding: 14px; margin: 15px 0; border: 2px solid #e5e7eb; border-radius: 8px; box-sizing: border-box; font-size: 16px; text-align: center; font-weight: bold; letter-spacing: 2px;}
-        button { width: 100%; padding: 15px; background: #0047ff; color: white; border: none; font-weight: bold; font-size: 16px; border-radius: 8px; cursor: pointer; }
+        body { margin: 0; background: #0f172a; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; color: white;}
+        .pay-card { background: #1e293b; width: 340px; padding: 25px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border-top: 4px solid #00d2ff;}
+        .logo { font-size: 28px; font-weight: bold; color: #00d2ff; margin-bottom: 5px; }
+        .timer { font-size: 24px; font-weight: bold; color: #ef4444; background: rgba(239, 68, 68, 0.1); padding: 10px; border-radius: 8px; margin: 15px 0; border: 1px solid #ef4444;}
+        .qr-box { background: white; padding: 10px; border-radius: 10px; display: inline-block; margin-bottom: 15px;}
+        .qr-box img { width: 200px; height: 200px; }
+        input { width: 100%; padding: 14px; margin: 10px 0; background: #0f172a; border: 2px solid #334155; border-radius: 8px; box-sizing: border-box; font-size: 16px; text-align: center; font-weight: bold; letter-spacing: 2px; color: white; outline: none;}
+        input:focus { border-color: #00d2ff; }
+        button { width: 100%; padding: 15px; background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%); color: white; border: none; font-weight: bold; font-size: 16px; border-radius: 8px; cursor: pointer; position: relative;}
+        
+        .loader { display: none; border: 3px solid #f3f3f3; border-top: 3px solid transparent; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* ALL IN ONE POPUP */
+        #notify { position: fixed; top: 20px; right: 20px; z-index: 9999; }
+        .popup { padding: 15px 25px; border-radius: 10px; margin-bottom: 10px; background: #1e293b; animation: slideIn 0.3s ease; border-left: 5px solid; font-weight: bold;}
+        .popup.success { border-color: #10b981; color: #10b981; }
+        .popup.error { border-color: #ef4444; color: #ef4444; }
+        @keyframes slideIn { from{transform:translateX(100%);} to{transform:translateX(0);} }
     </style>
 </head>
 <body>
-    <div class="pay-card">
-        <div class="logo">0PAY <i>Visa</i></div>
-        <h2 style="margin: 5px 0; color: #111827;">₹{{ amount }}</h2>
-        <p style="color: #6b7280; margin: 0;">Pay exactly this amount.</p>
-        
-        <div class="timer" id="timer">05:00</div>
-        
-        <div class="qr-box">
-            <img src="{{ qr_url }}" alt="QR Code">
-        </div>
-        <p style="font-weight: bold; color: #374151;">UPI: {{ upi }}</p>
+    <div id="notify"></div>
 
-        <input type="text" id="utr" placeholder="ENTER 12 DIGIT UTR" maxlength="12">
-        <button onclick="submitUTR()">Verify Payment</button>
+    <div class="pay-card">
+        {% if success %}
+            <h2 style='color:#10b981;'>Payment Successful ✅</h2>
+            <p style="color:#94a3b8;">Transaction completed securely.</p>
+        {% elif expired %}
+            <h2 style='color:#ef4444;'>Link Expired ❌</h2>
+            <p style="color:#94a3b8;">You did not pay within 5 minutes.</p>
+        {% else %}
+            <div class="logo">0PAY <i>Visa</i></div>
+            <h2 style="margin: 5px 0; color: #00d2ff;">₹{{ amount }}</h2>
+            <p style="color: #94a3b8; margin: 0; font-size: 12px;">Amount & ID Locked in QR</p>
+            
+            <!-- TIMER CONTROLLED BY SERVER time_left -->
+            <div class="timer" id="timer">Loading...</div>
+            
+            <div class="qr-box">
+                <img src="{{ qr_url }}" alt="QR Code">
+            </div>
+            <p style="font-weight: bold; color: #94a3b8; font-size:14px;">UPI: {{ upi }}</p>
+            <p style="font-size: 11px; color:#ef4444;">TXN ID: {{ txn_id }}</p>
+
+            <input type="number" id="utr" placeholder="ENTER 12 DIGIT UTR" maxlength="12">
+            <button onclick="submitUTR()" id="btn-pay"><span id="txt-pay">Verify Payment</span><div class="loader" id="ldr-pay"></div></button>
+        {% endif %}
     </div>
 
     <script>
-        const TXN_ID = "{{ txn_id }}";
-        
-        // Persistent Timer Logic
-        let startTime = localStorage.getItem(`txn_${TXN_ID}`);
-        if (!startTime) {
-            startTime = Date.now();
-            localStorage.setItem(`txn_${TXN_ID}`, startTime);
+        function showMsg(m, t) {
+            const b = document.getElementById('notify');
+            const n = document.createElement('div'); n.className = `popup ${t}`; n.innerHTML = m;
+            b.appendChild(n); setTimeout(() => n.remove(), 4000);
         }
 
+        // Server Side Countdown
+        let timeLeft = parseInt("{{ time_left | default(0) }}");
+        
         function updateTimer() {
-            let elapsed = Math.floor((Date.now() - startTime) / 1000);
-            let left = 300 - elapsed;
-            
-            if (left <= 0) {
+            if (typeof timeLeft === 'undefined' || isNaN(timeLeft)) return;
+            if (timeLeft <= 0) {
                 document.getElementById('timer').innerText = "EXPIRED";
-                document.querySelector('button').disabled = true;
+                document.getElementById('btn-pay').disabled = true;
+                showMsg("Payment Window Expired", "error");
                 return;
             }
-            let m = Math.floor(left / 60).toString().padStart(2, '0');
-            let s = (left % 60).toString().padStart(2, '0');
+            let m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+            let s = (timeLeft % 60).toString().padStart(2, '0');
             document.getElementById('timer').innerText = `${m}:${s}`;
+            timeLeft--;
             setTimeout(updateTimer, 1000);
         }
-        updateTimer();
+        
+        {% if not success and not expired %}
+            updateTimer();
+        {% endif %}
 
         async function submitUTR() {
             const utr = document.getElementById('utr').value;
-            if(utr.length !== 12) return alert("Please enter valid 12 digit UTR");
+            if(utr.length !== 12 || isNaN(utr)) return showMsg("Please enter exact 12 digit UTR number", "error");
             
-            const res = await fetch('/api/verify_utr', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({utr: utr, amount: "{{ amount }}", api_id: "{{ api_id }}"})
-            });
-            const data = await res.json();
-            alert(data.message || data.status);
-            if(data.status === 'success') {
-                localStorage.removeItem(`txn_${TXN_ID}`);
-                document.body.innerHTML = "<h2 style='color:green; text-align:center;'>Payment Successful ✅</h2>";
+            document.getElementById('txt-pay').style.display = 'none';
+            document.getElementById('ldr-pay').style.display = 'block';
+            document.getElementById('btn-pay').disabled = true;
+
+            try {
+                const res = await fetch('/api/verify_utr', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({utr: utr, txn_id: "{{ txn_id }}"})
+                });
+                const data = await res.json();
+                
+                if(data.status === 'success') {
+                    showMsg(data.message, "success");
+                    setTimeout(() => location.reload(), 1500); // Reload to show success screen
+                } else {
+                    showMsg(data.message, "error");
+                    document.getElementById('txt-pay').style.display = 'block';
+                    document.getElementById('ldr-pay').style.display = 'none';
+                    document.getElementById('btn-pay').disabled = false;
+                }
+            } catch(e) {
+                showMsg("Network error checking UTR", "error");
+                document.getElementById('txt-pay').style.display = 'block';
+                document.getElementById('ldr-pay').style.display = 'none';
+                document.getElementById('btn-pay').disabled = false;
             }
         }
     </script>
