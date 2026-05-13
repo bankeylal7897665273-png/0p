@@ -2,6 +2,7 @@ import os
 import json
 import time
 import requests
+import urllib.parse  # 🛑 YEH NAYA MODULE ADD KIYA HAI QR LOCK KE LIYE
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from dotenv import load_dotenv
 
@@ -14,7 +15,7 @@ app.secret_key = os.getenv("SECRET_KEY", "Bankey_0PAY_Secure_Permanent_Key_100")
 # ENV Variables
 API_KEY = os.getenv("FIREBASE_API_KEY")
 DB_URL = os.getenv("FIREBASE_DATABASE_URL")
-UPI_ID = os.getenv("UPI_ID")
+UPI_ID = os.getenv("UPI_ID", "7897803277@freecharge") # Aapka UPI by default set kar diya
 FC_COOKIE = os.getenv("FC_COOKIE")
 
 # --- FIREBASE REST API FUNCTIONS ---
@@ -127,17 +128,14 @@ def request_payout():
 # 🛑 CORE PAYMENT SYSTEM (ENTRY -> REDIRECT -> LOCK)
 # ==========================================
 
-# 1. ENTRY POINT (Dashboard wala link yahan aayega)
 @app.route('/pay/<api_id>/<amount>')
 def init_payment(api_id, amount):
     api_data = db_get(f"apis/{api_id}")
     if not api_data: return "Error: Invalid API ID", 404
     
-    # Create Unique TXN ID and Expiry Time (5 Mins = 300 Secs)
     txn_id = f"TXN{int(time.time())}"
     expiry_time = int(time.time()) + 300 
     
-    # Save to Firebase
     db_put(f"pending_txns/{txn_id}", {
         "api_id": api_id,
         "amount": float(amount),
@@ -145,10 +143,8 @@ def init_payment(api_id, amount):
         "status": "pending"
     })
     
-    # REDIRECT TO SECURE CHECKOUT PAGE
     return redirect(f"/checkout/{txn_id}")
 
-# 2. SECURE CHECKOUT PAGE (Yahan 5 min ka timer aur QR dikhega)
 @app.route('/checkout/<txn_id>')
 def checkout_page(txn_id):
     txn_data = db_get(f"pending_txns/{txn_id}")
@@ -162,15 +158,16 @@ def checkout_page(txn_id):
     current_time = int(time.time())
     expiry_time = txn_data['expiry']
     
-    # Check if 5 mins passed
     if current_time >= expiry_time:
         return render_template('pay.html', expired=True)
         
     time_left = expiry_time - current_time
     amount = txn_data['amount']
     
-    # Generate QR with Amount Locked (am=) and ID appended (tr=)
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=upi://pay?pa={UPI_ID}&am={amount}&tr={txn_id}&cu=INR"
+    # 🛑 YAHAN AMOUNT AUR ID 100% LOCK HOGA (QR API TRUNCATION BUG FIXED)
+    upi_string = f"upi://pay?pa={UPI_ID}&pn=0PAY Merchant&am={amount}&tr={txn_id}&cu=INR"
+    encoded_upi = urllib.parse.quote(upi_string) # Link encode karna zaroori tha
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={encoded_upi}"
     
     return render_template('pay.html', amount=amount, txn_id=txn_id, qr_url=qr_url, upi=UPI_ID, time_left=time_left, expired=False, success=False)
 
@@ -199,7 +196,7 @@ def verify_utr():
     try:
         cookies = {'app_fc': FC_COOKIE}
         headers = {"User-Agent": "Mozilla/5.0"}
-        # Freecharge Merchant verification request
+        # Freecharge Merchant verification API - (You may need to update this URL if FC changes it)
         fc_res = requests.get(f"https://merchant.freecharge.in/api/v1/transaction?utr={utr}", cookies=cookies, headers=headers, timeout=5)
         
         if fc_res.ok:
@@ -210,6 +207,7 @@ def verify_utr():
         print(f"FC API Error: {e}")
         pass
 
+    # YAHAN COOKIE CHECK PASS HONE PAR HI SUCCESS HOGA
     if is_valid:
         api_id = txn_data['api_id']
         api_data = db_get(f"apis/{api_id}")
