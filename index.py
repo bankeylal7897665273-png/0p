@@ -15,7 +15,7 @@ app.secret_key = os.getenv("SECRET_KEY", "Bankey_0PAY_Secure_Permanent_Key_100")
 # ENV Variables
 API_KEY = os.getenv("FIREBASE_API_KEY")
 DB_URL = os.getenv("FIREBASE_DATABASE_URL")
-UPI_ID = os.getenv("UPI_ID", "7897803277@freecharge")
+UPI_ID = os.getenv("UPI_ID")
 FC_COOKIE = os.getenv("FC_COOKIE")
 
 # --- FIREBASE REST API FUNCTIONS ---
@@ -123,6 +123,7 @@ def request_payout():
     
     return jsonify({"status": "success", "message": "Payout requested successfully"})
 
+
 # ==========================================
 # 🛑 CORE PAYMENT SYSTEM (ENTRY -> REDIRECT -> LOCK)
 # ==========================================
@@ -163,7 +164,6 @@ def checkout_page(txn_id):
     time_left = expiry_time - current_time
     amount = txn_data['amount']
     
-    # 🛑 YAHAN AMOUNT AUR ID 100% LOCK HOTA HAI (URL ENCODING FIXED)
     upi_string = f"upi://pay?pa={UPI_ID}&pn=0PAY Merchant&am={amount}&tr={txn_id}&cu=INR"
     encoded_upi = urllib.parse.quote(upi_string)
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={encoded_upi}"
@@ -172,7 +172,7 @@ def checkout_page(txn_id):
 
 
 # ==========================================
-# 🛑 STRICT REAL UTR VERIFICATION
+# 🛑 STRICT REAL UTR VERIFICATION (FIXED)
 # ==========================================
 @app.route('/api/verify_utr', methods=['POST'])
 def verify_utr():
@@ -192,59 +192,44 @@ def verify_utr():
 
     amount = float(txn_data['amount'])
     
-    # --- REAL COOKIE CHECKING LOGIC ---
+    # --- REAL COOKIE CHECKING LOGIC WITH ANTI-BOT BYPASS ---
     is_valid = False
     try:
-        # Proper Cookie Formatting
         cookie_str = FC_COOKIE if "app_fc=" in FC_COOKIE else f"app_fc={FC_COOKIE}"
         
-        # Heavy Anti-Bot Headers
+        # Ye headers Freecharge ko lagne denge ki asli Insaan check kar raha hai, koi Python script nahi.
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
             "Cookie": cookie_str,
             "Origin": "https://merchant.freecharge.in",
             "Referer": "https://merchant.freecharge.in/"
         }
         
-        # NOTE: You can change this exact API URL from your .env file if it's wrong!
-        fc_api_url = os.getenv("FC_API_URL", f"https://merchant.freecharge.in/api/v1/transaction?utr={utr}")
+        fc_api_url = f"https://merchant.freecharge.in/api/v1/transaction?utr={utr}"
         
-        print("\n" + "="*30)
-        print(f"🚀 VERIFYING UTR: {utr}")
-        print(f"🔗 Requesting: {fc_api_url}")
-        
+        # 10 second timeout taaki request fail na ho jaldi
         fc_res = requests.get(fc_api_url, headers=headers, timeout=10)
-        
-        print(f"📡 Freecharge Status Code: {fc_res.status_code}")
-        print(f"📦 Freecharge Reply: {fc_res.text[:300]}") # Only printing first 300 chars to avoid huge logs
-        print("="*30 + "\n")
         
         if fc_res.ok:
             fc_data = fc_res.json()
             
-            # Smart Matching: Agar Freecharge direct dict bheje
+            # Logic to handle if Freecharge returns a single transaction dictionary
             if isinstance(fc_data, dict):
-                status = str(fc_data.get('status', '')).upper()
-                fc_amount = float(fc_data.get('amount', 0))
-                if status == 'SUCCESS' and fc_amount == amount:
+                if str(fc_data.get('status', '')).upper() == 'SUCCESS' and float(fc_data.get('amount', 0)) == amount:
                     is_valid = True
-                    
-            # Smart Matching: Agar Freecharge Transactions ki List bheje
+            
+            # Logic to handle if Freecharge returns a list of transactions
             elif isinstance(fc_data, list):
                 for txn in fc_data:
-                    txn_utr = str(txn.get('utr', ''))
-                    status = str(txn.get('status', '')).upper()
-                    fc_amount = float(txn.get('amount', 0))
-                    
-                    if txn_utr == utr and status == 'SUCCESS' and fc_amount == amount:
+                    if str(txn.get('utr', '')) == utr and str(txn.get('status', '')).upper() == 'SUCCESS' and float(txn.get('amount', 0)) == amount:
                         is_valid = True
                         break
-                        
     except Exception as e:
-        print(f"❌ FC API Python Error: {e}")
+        print(f"FC verification error: {e}")
+        pass
 
-    # SUCCESS ONLY IF COOKIE MATCHES THE DATA
     if is_valid:
         api_id = txn_data['api_id']
         api_data = db_get(f"apis/{api_id}")
@@ -259,7 +244,7 @@ def verify_utr():
             "balance": user_data['balance'] + merchant_cut,
             "success": user_data['success'] + merchant_cut
         })
-        return jsonify({"status": "success", "message": "Payment Verified Successfully!"})
+        return jsonify({"status": "success", "message": "Payment Verified!"})
     
     return jsonify({"status": "error", "message": "Payment not received yet. Check UTR and try again."})
 
